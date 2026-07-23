@@ -1,3 +1,13 @@
+frp (0.70.1-1) unstable; urgency=medium
+
+  * HTTP vhost servers no longer support HTTP/1.1 Upgrade: h2c requests.
+    Cleartext HTTP/2 prior-knowledge remains supported.
+  * Fixed control-session replacement leaks when frpc reconnects through a
+    half-open TCP multiplexed connection.
+  * Fixed an SSH tunnel gateway panic when handling malformed exec requests.
+
+ -- donmor <donmor3000@hotmail.com>  Thu, 23 Jul 2026 16:27:16 +0800
+
 frp (0.70.0-1) unstable; urgency=medium
 
   * Expanded the frps dashboard API v2 migration across Clients, Proxies,
