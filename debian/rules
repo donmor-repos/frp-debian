@@ -14,16 +14,24 @@
 # Package maintainers to append LDFLAGS.
 #export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
 
+include /usr/share/dpkg/pkg-info.mk
+
 export GOPROXY ?= direct
 export GO111MODULE := on
+
+export CGO_LDFLAGS := $(LDFLAGS)
+export CGO_CPPFLAGS := $(CPPFLAGS) -fdebug-prefix-map=$(CURDIR)=. -ffile-prefix-map=$(CURDIR)=. -fno-ident -fno-guess-branch-probability
+export CGO_CFLAGS := $(CFLAGS) -fdebug-prefix-map=$(CURDIR)=. -ffile-prefix-map=$(CURDIR)=. -fno-ident -fno-guess-branch-probability
+export CGO_CXXFLAGS := $(CXXFLAGS) -fdebug-prefix-map=$(CURDIR)=. -ffile-prefix-map=$(CURDIR)=. -fno-ident -fno-guess-branch-probability
+export GOFLAGS := -buildmode=pie -mod=vendor -modcacherw -buildvcs=false
+export GOLDFLAGS := -linkmode=external
 
 %:
 	dh $@
 
 override_dh_auto_build:
-	cd web/frps && npm install
-	cd web/frpc && npm install
-	dh_auto_build -- web build
+	go mod vendor
+	dh_auto_build -- web-ci build
 
 override_dh_installsystemd:
 	dh_installsystemd --name=frps
@@ -38,6 +46,8 @@ override_dh_strip:
 .IGNORE: override_dh_dwz
 override_dh_dwz:
 	dh_dwz -a
+override_dh_shlibdeps:
+	dh_shlibdeps -l/usr/$(DEB_HOST_GNU_TYPE)/lib
 
 # dh_make generated override targets.
 # This is an example for Cmake (see <https://bugs.debian.org/641051>).

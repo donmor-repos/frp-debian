@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: donmor <donmor3000@hotmail.com>
 Rules-Requires-Root: no
 Build-Depends:
- debhelper-compat (= 13), golang-go (>=2:1.23~1), npm
+ debhelper-compat (= 13), golang-go:native (>= 2:1.24~1), nodejs:native (>= 18), npm
 Standards-Version: 4.7.2
 Homepage: https://github.com/fatedier/frp
 #Vcs-Browser: https://salsa.debian.org/debian/frp

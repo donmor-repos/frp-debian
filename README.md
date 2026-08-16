@@ -1,19 +1,31 @@
 # frp-debian
 
-[![Debian Build Bot](https://github.com/donmor/frp-debian/actions/workflows/dpkg-buildpackage.yml/badge.svg?event=release)](https://github.com/donmor/frp-debian/actions/workflows/dpkg-buildpackage.yml)
+[![Debian Build Bot](https://github.com/donmor-repos/frp-debian/actions/workflows/dpkg-buildpackage.yml/badge.svg?event=release)](https://github.com/donmor-repos/frp-debian/actions/workflows/dpkg-buildpackage.yml)
 
-Unofficial Debian packaging scripts for [FRP project](https://github.com/fatedier/frp).
+(Unofficial) Debian packaging scripts for [FRP project](https://github.com/fatedier/frp).
 
+Provided packages:
+- `frp` (meta)
+- `frpc` (+dbgsym)
+- `frpc-common`
+- `frps` (+dbgsym)
+- `frps-common`
+
+## Quick configuration
+Install [`donmor-repos-keyring`](https://donmor-repos.github.io/pub/donmor-repos-keyring_0.0.1_all.deb) and [`frp-debian-repo`](https://donmor-repos.github.io/pub/frp-debian-repo_0.0.1_all.deb), then run `apt-get update`.
+
+## Manual configuration
+#### Add keyring:
 ``` bash
-# tee /etc/apt/sources.list.d/frp.list <<EOF
-deb [trusted=yes] https://github.com/donmor/frp-debian/releases/latest/download /
-# deb-src [trusted=yes] https://github.com/donmor/frp-debian/releases/latest/download /
-EOF
+curl -sLOJR --output-dir /usr/share/keyrings https://donmor-repos.github.io/pub/donmor-repos-keyring.gpg
 ```
-Gitee mirror (newest 15 versions of amd64/arm64/armhf/loong64/riscv64 only)
+#### Add `frp-debian`:
 ``` bash
-# tee /etc/apt/sources.list.d/frp.list <<EOF
-deb [trusted=yes] https://gitee.com/donmor/frp-debian/releases/download/latest /
-# deb-src [trusted=yes] https://gitee.com/donmor/frp-debian/releases/download/latest /
+# tee /etc/apt/sources.list.d/frp.sources <<EOF
+Types: deb deb-src
+URIs: https://github.com/donmor-repos/frp-debian/releases/latest/download
+Suites: /
+Signed-By: /usr/share/keyrings/donmor-repos-keyring.gpg
 EOF
+apt-get update
 ```

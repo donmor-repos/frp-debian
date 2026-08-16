@@ -2,438 +2,261 @@ name: Debian Build Bot
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        required: true
 
 jobs:
-  build_amd64:
-    name: Build amd64 packages
-    runs-on: ubuntu-24.04
+  version:
+    name: Get versions
+    runs-on: ubuntu-latest
+    outputs:
+      frp: ${{ steps.version.outputs.frp }}
+      ref: ${{ steps.version.outputs.ref }}
+      epoch: ${{ steps.version.outputs.epoch }}
     steps:
-      - run: echo "Building with ${{ github.ref_name }}"
-      - run: |
-          TAG=${{ github.ref_name }}
-          echo "FRP_VERSION=${TAG#v}" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
-        with:
-          path: frp-${{ env.FRP_VERSION }}
-      - uses: robinraju/release-downloader@v1
-        with:
-          repository: 'fatedier/frp'
-          tag: ${{ github.ref_name }}
-          tarBall: true
-      - run: mv frp-${{ github.ref_name }}.tar.gz frp_${{ env.FRP_VERSION }}.orig.tar.gz
-      - working-directory: frp-${{ env.FRP_VERSION }}
-        env:
-          GOARCH: 'amd64'
+      - id: version
         run: |
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1 --wildcards 'fatedier-frp-???????/go.mod'
-          mv .github/workflows /tmp
-          /tmp/workflows/.extras.sh
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1
-          dpkg-buildpackage -us -uc -Zgzip -d
-      - uses: softprops/action-gh-release@v2
-        if: github.ref_type == 'tag'
-        with:
-          files: |
-            frp_${{ env.FRP_VERSION }}.orig.tar.gz
-            frp_${{ env.FRP_VERSION }}-1.debian.tar.gz
-            frp_${{ env.FRP_VERSION }}-1.dsc
-            frp_${{ env.FRP_VERSION }}-1_amd64.buildinfo
-            frp_${{ env.FRP_VERSION }}-1_amd64.changes
-            frp_${{ env.FRP_VERSION }}-1_all.deb
-            frpc_${{ env.FRP_VERSION }}-1_amd64.deb
-            frps_${{ env.FRP_VERSION }}-1_amd64.deb
-            frpc-common_${{ env.FRP_VERSION }}-1_all.deb
-            frps-common_${{ env.FRP_VERSION }}-1_all.deb
-  build_arm64:
-    name: Build arm64 packages
+          if [ -n "${{ github.event.inputs.ref }}" ]; then
+            TAG=${{ github.event.inputs.ref }}
+          else
+            TAG=${{ github.ref_name }}
+          fi
+          DATE=`curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/fatedier/frp/releases/tags/${TAG}" | jq -r ".created_at"`
+          echo "frp=${TAG#v}" >> $GITHUB_OUTPUT
+          echo "ref=${TAG}" >> $GITHUB_OUTPUT
+          date -d "${DATE}" +epoch=%s >> $GITHUB_OUTPUT
+  build:
+    name: Build ${{ matrix.config.d_arch }} packages
     runs-on: ubuntu-24.04-arm
+    # runs-on: ${{ matrix.config.host }}
+    container:
+      image: debian@sha256:c94f5ddd41327aa2d4a7cfba7889056c02936182fd76a513fec6160c97181fc0
+      # image: ${{ matrix.config.host_image }}
+    strategy:
+      matrix:
+        config:
+          - d_arch: amd64
+            c_arch: x86_64-linux-gnu
+            h_arch: amd64
+            go_arch: amd64
+            go_host_arch: amd64
+            host: ubuntu-24.04
+            host_image: debian@sha256:38a76d01668772e381ad2826d876627c89e7133e2f8a0f5d567306798b0f2a16
+          - d_arch: arm64
+            c_arch: aarch64-linux-gnu
+            h_arch: arm64
+            go_arch: arm64
+            go_host_arch: arm64
+            host: ubuntu-24.04-arm
+            host_image: debian@sha256:c94f5ddd41327aa2d4a7cfba7889056c02936182fd76a513fec6160c97181fc0
+          # - d_arch: i386 #        Not reproducible
+          #   c_arch: i686-linux-gnu
+          #   h_arch: amd64
+          #   go_arch: 386
+          #   go_host_arch: amd64
+          #   host: ubuntu-24.04
+          #   host_image: debian@sha256:38a76d01668772e381ad2826d876627c89e7133e2f8a0f5d567306798b0f2a16
+          - d_arch: armhf
+            c_arch: arm-linux-gnueabihf
+            h_arch: arm64
+            go_arch: arm
+            go_host_arch: arm64
+            go_arm: 7
+            host: ubuntu-24.04-arm
+            host_image: debian@sha256:c94f5ddd41327aa2d4a7cfba7889056c02936182fd76a513fec6160c97181fc0
+          - d_arch: armel
+            c_arch: arm-linux-gnueabi
+            h_arch: arm64
+            go_arch: arm
+            go_host_arch: arm64
+            go_arm: 5
+            host: ubuntu-24.04-arm
+            host_image: debian@sha256:c94f5ddd41327aa2d4a7cfba7889056c02936182fd76a513fec6160c97181fc0
+          - d_arch: loong64
+            c_arch: loongarch64-linux-gnu
+            h_arch: arm64
+            go_arch: loong64
+            go_host_arch: arm64
+            host: ubuntu-26.04-arm
+            host_image: debian@sha256:c94f5ddd41327aa2d4a7cfba7889056c02936182fd76a513fec6160c97181fc0
+          # - d_arch: mips64el #        No pie
+          #   c_arch: mips64el-linux-gnuabi64
+          #   h_arch: arm64
+          #   go_arch: mips64le
+          #   go_host_arch: arm64
+          #   host: ubuntu-26.04-arm
+          #   host_image: debian@sha256:c94f5ddd41327aa2d4a7cfba7889056c02936182fd76a513fec6160c97181fc0
+          # - d_arch: mipsel #        No pie
+          #   c_arch: mipsel-linux-gnu
+          #   h_arch: arm64
+          #   go_arch: mipsle
+          #   go_host_arch: arm64
+          #   host: ubuntu-26.04-arm
+          #   host_image: debian@sha256:c94f5ddd41327aa2d4a7cfba7889056c02936182fd76a513fec6160c97181fc0
+          # - d_arch: mips64 #        No pie
+          #   c_arch: mips64-linux-gnuabi64
+          #   h_arch: arm64
+          #   go_arch: mips64
+          #   go_host_arch: arm64
+          #   host: ubuntu-26.04-arm
+          #   host_image: debian@sha256:c94f5ddd41327aa2d4a7cfba7889056c02936182fd76a513fec6160c97181fc0
+          # - d_arch: mips #        No pie
+          #   c_arch: mips-linux-gnu
+          #   h_arch: arm64
+          #   go_arch: mips
+          #   go_host_arch: arm64
+          #   host: ubuntu-26.04-arm
+          #   host_image: debian@sha256:c94f5ddd41327aa2d4a7cfba7889056c02936182fd76a513fec6160c97181fc0
+          - d_arch: ppc64el
+            c_arch: powerpc64le-linux-gnu
+            h_arch: arm64
+            go_arch: ppc64le
+            go_host_arch: arm64
+            host: ubuntu-24.04-arm
+            host_image: debian@sha256:c94f5ddd41327aa2d4a7cfba7889056c02936182fd76a513fec6160c97181fc0
+          # - d_arch: ppc64 #        No arm64 cross toolchain
+          #   c_arch: powerpc64-linux-gnu
+          #   h_arch: amd64
+          #   go_arch: ppc64
+          #   go_host_arch: amd64
+          #   host: ubuntu-24.04
+          #   host_image: debian@sha256:38a76d01668772e381ad2826d876627c89e7133e2f8a0f5d567306798b0f2a16
+          - d_arch: riscv64
+            c_arch: riscv64-linux-gnu
+            h_arch: arm64
+            go_arch: riscv64
+            go_host_arch: arm64
+            host: ubuntu-24.04-arm
+            host_image: debian@sha256:c94f5ddd41327aa2d4a7cfba7889056c02936182fd76a513fec6160c97181fc0
+          - d_arch: s390x
+            c_arch: s390x-linux-gnu
+            h_arch: arm64
+            go_arch: s390x
+            go_host_arch: arm64
+            host: ubuntu-24.04-arm
+            host_image: debian@sha256:c94f5ddd41327aa2d4a7cfba7889056c02936182fd76a513fec6160c97181fc0
+    needs: version
     steps:
-      - run: echo "Building with ${{ github.ref_name }}"
-      - run: |
-          TAG=${{ github.ref_name }}
-          echo "FRP_VERSION=${TAG#v}" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
-        with:
-          path: frp-${{ env.FRP_VERSION }}
-      - uses: robinraju/release-downloader@v1
-        with:
-          repository: 'fatedier/frp'
-          tag: ${{ github.ref_name }}
-          tarBall: true
-      - run: mv frp-${{ github.ref_name }}.tar.gz frp_${{ env.FRP_VERSION }}.orig.tar.gz
-      - working-directory: frp-${{ env.FRP_VERSION }}
-        env:
-          GOARCH: 'arm64'
+      - name: Prepare source and build scripts
         run: |
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1 --wildcards 'fatedier-frp-???????/go.mod'
-          mv .github/workflows /tmp
-          /tmp/workflows/.extras.sh
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1
-          dpkg-buildpackage -us -uc -Zgzip -d
-      - uses: softprops/action-gh-release@v2
-        if: github.ref_type == 'tag'
-        with:
-          files: |
-            frp_${{ env.FRP_VERSION }}-1_arm64.buildinfo
-            frp_${{ env.FRP_VERSION }}-1_arm64.changes
-            frpc_${{ env.FRP_VERSION }}-1_arm64.deb
-            frps_${{ env.FRP_VERSION }}-1_arm64.deb
-  build_i386:
-    name: Build i386 packages
-    runs-on: ubuntu-24.04
-    steps:
-      - run: echo "Building with ${{ github.ref_name }}"
-      - run: |
-          TAG=${{ github.ref_name }}
-          echo "FRP_VERSION=${TAG#v}" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
-        with:
-          path: frp-${{ env.FRP_VERSION }}
-      - uses: robinraju/release-downloader@v1
-        with:
-          repository: 'fatedier/frp'
-          tag: ${{ github.ref_name }}
-          tarBall: true
-      - run: mv frp-${{ github.ref_name }}.tar.gz frp_${{ env.FRP_VERSION }}.orig.tar.gz
-      - working-directory: frp-${{ env.FRP_VERSION }}
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl jq gpg
+          curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -o frp_${{ needs.version.outputs.frp }}.orig.tar.gz \
+              https://github.com/fatedier/frp/archive/refs/tags/${{ needs.version.outputs.ref }}.tar.gz
+          tar xvf frp_${{ needs.version.outputs.frp }}.orig.tar.gz
+          curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -o frp-debian.tar.gz \
+              https://github.com/${{ github.repository }}/archive/${{ github.ref }}.tar.gz
+          tar xvf frp-debian.tar.gz --strip-components=1 -C frp-${{ needs.version.outputs.frp }} frp-debian-`echo "${{ github.ref_name }}" | sed 's/^v//'`/debian
+      - name: Prepare and build
+        working-directory: frp-${{ needs.version.outputs.frp }}
         env:
-          GOARCH: '386'
-        run: |
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1 --wildcards 'fatedier-frp-???????/go.mod'
-          mv .github/workflows /tmp
-          /tmp/workflows/.extras.sh
-          sudo apt-get install binutils-i686-linux-gnu
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1
-          dpkg-buildpackage -us -uc -Zgzip -d -a i386
-      - uses: softprops/action-gh-release@v2
-        if: github.ref_type == 'tag'
-        with:
-          files: |
-            frp_${{ env.FRP_VERSION }}-1_i386.buildinfo
-            frp_${{ env.FRP_VERSION }}-1_i386.changes
-            frpc_${{ env.FRP_VERSION }}-1_i386.deb
-            frps_${{ env.FRP_VERSION }}-1_i386.deb
-  build_armhf:
-    name: Build armhf packages
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - run: echo "Building with ${{ github.ref_name }}"
-      - run: |
-          TAG=${{ github.ref_name }}
-          echo "FRP_VERSION=${TAG#v}" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
-        with:
-          path: frp-${{ env.FRP_VERSION }}
-      - uses: robinraju/release-downloader@v1
-        with:
-          repository: 'fatedier/frp'
-          tag: ${{ github.ref_name }}
-          tarBall: true
-      - run: mv frp-${{ github.ref_name }}.tar.gz frp_${{ env.FRP_VERSION }}.orig.tar.gz
-      - working-directory: frp-${{ env.FRP_VERSION }}
-        env:
-          GOARCH: 'arm'
-          GOARM: '7'
-        run: |
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1 --wildcards 'fatedier-frp-???????/go.mod'
-          mv .github/workflows /tmp
-          /tmp/workflows/.extras.sh
-          sudo apt-get install binutils-arm-linux-gnueabihf
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1
-          dpkg-buildpackage -us -uc -Zgzip -d -a armhf
-      - uses: softprops/action-gh-release@v2
-        if: github.ref_type == 'tag'
-        with:
-          files: |
-            frp_${{ env.FRP_VERSION }}-1_armhf.buildinfo
-            frp_${{ env.FRP_VERSION }}-1_armhf.changes
-            frpc_${{ env.FRP_VERSION }}-1_armhf.deb
-            frps_${{ env.FRP_VERSION }}-1_armhf.deb
-  build_armel:
-    name: Build armel packages
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - run: echo "Building with ${{ github.ref_name }}"
-      - run: |
-          TAG=${{ github.ref_name }}
-          echo "FRP_VERSION=${TAG#v}" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
-        with:
-          path: frp-${{ env.FRP_VERSION }}
-      - uses: robinraju/release-downloader@v1
-        with:
-          repository: 'fatedier/frp'
-          tag: ${{ github.ref_name }}
-          tarBall: true
-      - run: mv frp-${{ github.ref_name }}.tar.gz frp_${{ env.FRP_VERSION }}.orig.tar.gz
-      - working-directory: frp-${{ env.FRP_VERSION }}
-        env:
-          GOARCH: 'arm'
-          GOARM: '5'
-        run: |
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1 --wildcards 'fatedier-frp-???????/go.mod'
-          mv .github/workflows /tmp
-          /tmp/workflows/.extras.sh
-          sudo apt-get install binutils-arm-linux-gnueabi
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1
-          dpkg-buildpackage -us -uc -Zgzip -d -a armel
-      - uses: softprops/action-gh-release@v2
-        if: github.ref_type == 'tag'
-        with:
-          files: |
-            frp_${{ env.FRP_VERSION }}-1_armel.buildinfo
-            frp_${{ env.FRP_VERSION }}-1_armel.changes
-            frpc_${{ env.FRP_VERSION }}-1_armel.deb
-            frps_${{ env.FRP_VERSION }}-1_armel.deb
-  build_loong64:
-    name: Build loong64 packages
-    runs-on: ubuntu-24.04
-    steps:
-      - run: echo "Building with ${{ github.ref_name }}"
-      - run: |
-          TAG=${{ github.ref_name }}
-          echo "FRP_VERSION=${TAG#v}" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
-        with:
-          path: frp-${{ env.FRP_VERSION }}
-      - uses: robinraju/release-downloader@v1
-        with:
-          repository: 'fatedier/frp'
-          tag: ${{ github.ref_name }}
-          tarBall: true
-      - run: mv frp-${{ github.ref_name }}.tar.gz frp_${{ env.FRP_VERSION }}.orig.tar.gz
-      - working-directory: frp-${{ env.FRP_VERSION }}
-        env:
-          GOARCH: 'loong64'
+          GOPROXY: "https://proxy.golang.org"
+          C_ARCH: ${{ matrix.config.c_arch }}
+          D_ARCH: ${{ matrix.config.d_arch }}
+          H_ARCH: arm64
+          # H_ARCH: ${{ matrix.config.h_arch }}
+          GOHOSTOS: linux
+          GOHOSTARCH: arm64
+          # GOHOSTARCH: ${{ matrix.config.go_host_arch }}
+          GOOS: linux
+          GOARCH: ${{ matrix.config.go_arch }}
+          SOURCE_DATE_EPOCH: ${{ needs.version.outputs.epoch }}
           DEB_BUILD_OPTIONS: 'nocheck' # Skipping all checks as we are cross-compiling
         run: |
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1 --wildcards 'fatedier-frp-???????/go.mod'
-          mv .github/workflows /tmp
-          /tmp/workflows/.extras.sh
-          sudo apt-get install binutils-loongarch64-linux-gnu
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1
-          dpkg-buildpackage -us -uc -Zgzip -d -a loong64
-      - uses: softprops/action-gh-release@v2
-        if: github.ref_type == 'tag'
+          tar xf ../frp-debian.tar.gz frp-debian-`echo "${{ github.ref_name }}" | sed 's/^v//'`/.github/workflows/.extras.sh -O | sh
+          if [ -n "${{ matrix.config.go_arm }}" ]; then export GOARM="${{ matrix.config.go_arm }}"; fi
+          export CC=${C_ARCH}-gcc
+          export CXX=${C_ARCH}-g++
+          dpkg-buildpackage -v${{ needs.version.outputs.frp }}-1 -us -uc -Zgzip -a ${D_ARCH}
+      - name: Send built packages - src
+        uses: actions/upload-artifact@v7
+        if: matrix.config.d_arch == 'amd64'
         with:
-          files: |
-            frp_${{ env.FRP_VERSION }}-1_loong64.buildinfo
-            frp_${{ env.FRP_VERSION }}-1_loong64.changes
-            frpc_${{ env.FRP_VERSION }}-1_loong64.deb
-            frps_${{ env.FRP_VERSION }}-1_loong64.deb
-  build_mips64el:
-    name: Build mips64el packages
+          name: src
+          retention-days: 1
+          path: |
+            frp_${{ needs.version.outputs.frp }}.orig.tar.gz
+            frp_${{ needs.version.outputs.frp }}-1.debian.tar.gz
+            frp_${{ needs.version.outputs.frp }}-1.dsc
+      - name: Send built packages - all
+        uses: actions/upload-artifact@v7
+        if: matrix.config.d_arch == 'amd64'
+        with:
+          name: all
+          retention-days: 1
+          path: |
+            frp_${{ needs.version.outputs.frp }}-1_all.deb
+            frpc-common_${{ needs.version.outputs.frp }}-1_all.deb
+            frps-common_${{ needs.version.outputs.frp }}-1_all.deb
+      - name: Send built packages - ${{ matrix.config.d_arch }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.config.d_arch }}
+          retention-days: 1
+          path: |
+            frpc_${{ needs.version.outputs.frp }}-1_${{ matrix.config.d_arch }}.deb
+            frpc-dbgsym_${{ needs.version.outputs.frp }}-1_${{ matrix.config.d_arch }}.deb
+            frps_${{ needs.version.outputs.frp }}-1_${{ matrix.config.d_arch }}.deb
+            frps-dbgsym_${{ needs.version.outputs.frp }}-1_${{ matrix.config.d_arch }}.deb
+  repository:
+    name: Generate Debian repository and upload all artifacts
+    needs: [version,build]
     runs-on: ubuntu-24.04
     steps:
-      - run: echo "Building with ${{ github.ref_name }}"
-      - run: |
-          TAG=${{ github.ref_name }}
-          echo "FRP_VERSION=${TAG#v}" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
+      - name: Get tools
+        run: sudo apt install --no-install-recommends dctrl-tools moreutils
+      - name: Checkout code to get previous tag
+        uses: actions/checkout@v7
         with:
-          path: frp-${{ env.FRP_VERSION }}
-      - uses: robinraju/release-downloader@v1
-        with:
-          repository: 'fatedier/frp'
-          tag: ${{ github.ref_name }}
-          tarBall: true
-      - run: mv frp-${{ github.ref_name }}.tar.gz frp_${{ env.FRP_VERSION }}.orig.tar.gz
-      - working-directory: frp-${{ env.FRP_VERSION }}
-        env:
-          GOARCH: 'mips64le'
-          DEB_BUILD_OPTIONS: 'nocheck' # Skipping all checks as we are cross-compiling
+          fetch-depth: '0'
+      - name: Get previous tag and create target directory
+        id: previous
         run: |
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1 --wildcards 'fatedier-frp-???????/go.mod'
-          mv .github/workflows /tmp
-          /tmp/workflows/.extras.sh
-          sudo apt-get install binutils-mips64el-linux-gnuabi64
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1
-          dpkg-buildpackage -us -uc -Zgzip -d -a mips64el
-      - uses: softprops/action-gh-release@v2
+          PREVIOUS_TAG=`git describe --abbrev=0 --tags ${{ needs.version.outputs.ref }}^`
+          echo "ref=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+          mkdir -p download/${{ needs.version.outputs.ref }}
+      - name: Download previous Packages (if exists)
+        uses: robinraju/release-downloader@v1
+        continue-on-error: true
+        with:
+          tag: ${{ steps.previous.outputs.ref }}
+          out-file-path: download/${{ needs.version.outputs.ref }}
+          fileName: 'Packages'
+      - name: Download previous Sources (if exists)
+        uses: robinraju/release-downloader@v1
+        continue-on-error: true
+        with:
+          tag: ${{ steps.previous.outputs.ref }}
+          out-file-path: download/${{ needs.version.outputs.ref }}
+          fileName: 'Sources'
+      - name: Download artifacts from build jobs
+        uses: actions/download-artifact@v8
+        with:
+          merge-multiple: true
+          path: download/${{ needs.version.outputs.ref }}
+      - name: Generate Packages, Sources, and InRelease
+        working-directory: download/${{ needs.version.outputs.ref }}
+        run: |
+          apt-ftparchive packages ../../download/${{ needs.version.outputs.ref }} | sort-dctrl -k Package,Architecture | tee -a Packages
+          apt-ftparchive sources ../../download/${{ needs.version.outputs.ref }} | tee -a Sources
+          sort-dctrl -k Version:v,Package,Architecture Packages | sponge Packages
+          sort-dctrl -k Version:v Sources | sponge Sources
+          echo "${{ secrets.GPG_KEY }}" | gpg --batch --import
+          PUB=`curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/fatedier/frp/releases/tags/${{ needs.version.outputs.ref }}" | jq -r ".published_at" | date -u -R -f -`
+          apt-ftparchive release -o APT::FTPArchive::Release::Date="${PUB}" . | gpg --batch --yes --clearsign --local-user ${{ secrets.GPG_KEY_FINGERPRINT }} --output - | tee InRelease
+      - name: Upload all artifacts
+        uses: actions/upload-artifact@v7
+        if: github.ref_type != 'tag'
+        with:
+          name: repo
+          retention-days: 1
+          path: download/${{ needs.version.outputs.ref }}/**
+      - name: Upload all files to release
+        uses: softprops/action-gh-release@v3
         if: github.ref_type == 'tag'
         with:
-          files: |
-            frp_${{ env.FRP_VERSION }}-1_mips64el.buildinfo
-            frp_${{ env.FRP_VERSION }}-1_mips64el.changes
-            frpc_${{ env.FRP_VERSION }}-1_mips64el.deb
-            frps_${{ env.FRP_VERSION }}-1_mips64el.deb
-  build_mipsel:
-    name: Build mipsel packages
-    runs-on: ubuntu-24.04
-    steps:
-      - run: echo "Building with ${{ github.ref_name }}"
-      - run: |
-          TAG=${{ github.ref_name }}
-          echo "FRP_VERSION=${TAG#v}" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
-        with:
-          path: frp-${{ env.FRP_VERSION }}
-      - uses: robinraju/release-downloader@v1
-        with:
-          repository: 'fatedier/frp'
-          tag: ${{ github.ref_name }}
-          tarBall: true
-      - run: mv frp-${{ github.ref_name }}.tar.gz frp_${{ env.FRP_VERSION }}.orig.tar.gz
-      - working-directory: frp-${{ env.FRP_VERSION }}
-        env:
-          GOARCH: 'mipsle'
-          DEB_BUILD_OPTIONS: 'nocheck' # Skipping all checks as we are cross-compiling
-        run: |
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1 --wildcards 'fatedier-frp-???????/go.mod'
-          mv .github/workflows /tmp
-          /tmp/workflows/.extras.sh
-          sudo apt-get install binutils-mipsel-linux-gnu
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1
-          dpkg-buildpackage -us -uc -Zgzip -d -a mipsel
-      - uses: softprops/action-gh-release@v2
-        if: github.ref_type == 'tag'
-        with:
-          files: |
-            frp_${{ env.FRP_VERSION }}-1_mipsel.buildinfo
-            frp_${{ env.FRP_VERSION }}-1_mipsel.changes
-            frpc_${{ env.FRP_VERSION }}-1_mipsel.deb
-            frps_${{ env.FRP_VERSION }}-1_mipsel.deb
-  build_ppc64el:
-    name: Build ppc64el packages
-    runs-on: ubuntu-24.04
-    steps:
-      - run: echo "Building with ${{ github.ref_name }}"
-      - run: |
-          TAG=${{ github.ref_name }}
-          echo "FRP_VERSION=${TAG#v}" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
-        with:
-          path: frp-${{ env.FRP_VERSION }}
-      - uses: robinraju/release-downloader@v1
-        with:
-          repository: 'fatedier/frp'
-          tag: ${{ github.ref_name }}
-          tarBall: true
-      - run: mv frp-${{ github.ref_name }}.tar.gz frp_${{ env.FRP_VERSION }}.orig.tar.gz
-      - working-directory: frp-${{ env.FRP_VERSION }}
-        env:
-          GOARCH: 'ppc64le'
-          DEB_BUILD_OPTIONS: 'nocheck' # Skipping all checks as we are cross-compiling
-        run: |
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1 --wildcards 'fatedier-frp-???????/go.mod'
-          mv .github/workflows /tmp
-          /tmp/workflows/.extras.sh
-          sudo apt-get install binutils-powerpc64le-linux-gnu
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1
-          dpkg-buildpackage -us -uc -Zgzip -d -a ppc64el
-      - uses: softprops/action-gh-release@v2
-        if: github.ref_type == 'tag'
-        with:
-          files: |
-            frp_${{ env.FRP_VERSION }}-1_ppc64el.buildinfo
-            frp_${{ env.FRP_VERSION }}-1_ppc64el.changes
-            frpc_${{ env.FRP_VERSION }}-1_ppc64el.deb
-            frps_${{ env.FRP_VERSION }}-1_ppc64el.deb
-  build_ppc64:
-    name: Build ppc64 packages
-    runs-on: ubuntu-24.04
-    steps:
-      - run: echo "Building with ${{ github.ref_name }}"
-      - run: |
-          TAG=${{ github.ref_name }}
-          echo "FRP_VERSION=${TAG#v}" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
-        with:
-          path: frp-${{ env.FRP_VERSION }}
-      - uses: robinraju/release-downloader@v1
-        with:
-          repository: 'fatedier/frp'
-          tag: ${{ github.ref_name }}
-          tarBall: true
-      - run: mv frp-${{ github.ref_name }}.tar.gz frp_${{ env.FRP_VERSION }}.orig.tar.gz
-      - working-directory: frp-${{ env.FRP_VERSION }}
-        env:
-          GOARCH: 'ppc64'
-          DEB_BUILD_OPTIONS: 'nocheck' # Skipping all checks as we are cross-compiling
-        run: |
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1 --wildcards 'fatedier-frp-???????/go.mod'
-          mv .github/workflows /tmp
-          /tmp/workflows/.extras.sh
-          sudo apt-get install binutils-powerpc64-linux-gnu
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1
-          dpkg-buildpackage -us -uc -Zgzip -d -a ppc64
-      - uses: softprops/action-gh-release@v2
-        if: github.ref_type == 'tag'
-        with:
-          files: |
-            frp_${{ env.FRP_VERSION }}-1_ppc64.buildinfo
-            frp_${{ env.FRP_VERSION }}-1_ppc64.changes
-            frpc_${{ env.FRP_VERSION }}-1_ppc64.deb
-            frps_${{ env.FRP_VERSION }}-1_ppc64.deb
-  build_riscv64:
-    name: Build riscv64 packages
-    runs-on: ubuntu-24.04
-    steps:
-      - run: echo "Building with ${{ github.ref_name }}"
-      - run: |
-          TAG=${{ github.ref_name }}
-          echo "FRP_VERSION=${TAG#v}" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
-        with:
-          path: frp-${{ env.FRP_VERSION }}
-      - uses: robinraju/release-downloader@v1
-        with:
-          repository: 'fatedier/frp'
-          tag: ${{ github.ref_name }}
-          tarBall: true
-      - run: mv frp-${{ github.ref_name }}.tar.gz frp_${{ env.FRP_VERSION }}.orig.tar.gz
-      - working-directory: frp-${{ env.FRP_VERSION }}
-        env:
-          GOARCH: 'riscv64'
-          DEB_BUILD_OPTIONS: 'nocheck' # Skipping all checks as we are cross-compiling
-        run: |
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1 --wildcards 'fatedier-frp-???????/go.mod'
-          mv .github/workflows /tmp
-          /tmp/workflows/.extras.sh
-          sudo apt-get install binutils-riscv64-linux-gnu
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1
-          dpkg-buildpackage -us -uc -Zgzip -d -a riscv64
-      - uses: softprops/action-gh-release@v2
-        if: github.ref_type == 'tag'
-        with:
-          files: |
-            frp_${{ env.FRP_VERSION }}-1_riscv64.buildinfo
-            frp_${{ env.FRP_VERSION }}-1_riscv64.changes
-            frpc_${{ env.FRP_VERSION }}-1_riscv64.deb
-            frps_${{ env.FRP_VERSION }}-1_riscv64.deb
-  build_s390x:
-    name: Build s390x packages
-    runs-on: ubuntu-24.04
-    steps:
-      - run: echo "Building with ${{ github.ref_name }}"
-      - run: |
-          TAG=${{ github.ref_name }}
-          echo "FRP_VERSION=${TAG#v}" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
-        with:
-          path: frp-${{ env.FRP_VERSION }}
-      - uses: robinraju/release-downloader@v1
-        with:
-          repository: 'fatedier/frp'
-          tag: ${{ github.ref_name }}
-          tarBall: true
-      - run: mv frp-${{ github.ref_name }}.tar.gz frp_${{ env.FRP_VERSION }}.orig.tar.gz
-      - working-directory: frp-${{ env.FRP_VERSION }}
-        env:
-          GOARCH: 's390x'
-          DEB_BUILD_OPTIONS: 'nocheck' # Skipping all checks as we are cross-compiling
-        run: |
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1 --wildcards 'fatedier-frp-???????/go.mod'
-          mv .github/workflows /tmp
-          /tmp/workflows/.extras.sh
-          sudo apt-get install binutils-s390x-linux-gnu
-          tar xvf ../frp_${{ env.FRP_VERSION }}.orig.tar.gz --strip-components=1
-          dpkg-buildpackage -us -uc -Zgzip -d -a s390x
-      - uses: softprops/action-gh-release@v2
-        if: github.ref_type == 'tag'
-        with:
-          files: |
-            frp_${{ env.FRP_VERSION }}-1_s390x.buildinfo
-            frp_${{ env.FRP_VERSION }}-1_s390x.changes
-            frpc_${{ env.FRP_VERSION }}-1_s390x.deb
-            frps_${{ env.FRP_VERSION }}-1_s390x.deb
+          files: download/${{ needs.version.outputs.ref }}/**
