@@ -29,6 +29,11 @@ export GOLDFLAGS := -linkmode=external
 %:
 	dh $@
 
+override_dh_auto_clean:
+	$(DH_OVERRIDDEN_COMMAND)
+	cd web && rm -rf frpc/dist frps/dist node_modules && npm cache clean --force
+	rm -rf vendor
+
 override_dh_auto_build:
 	go mod vendor
 	dh_auto_build -- web-ci build

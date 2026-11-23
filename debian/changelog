@@ -1,3 +1,23 @@
+frp (0.71.1-1) UNRELEASED; urgency=medium
+
+  * Updated dependencies to fix SSH tunnel gateway channel deadlocks and
+    panics caused by malformed challenges from NTLM-authenticated HTTP
+    proxies.
+  * Fixed VirtualNet routing issues during reconnection and shutdown, and
+    excessive retries after repeated connection failures.
+  * Health checks now reset the failure count after success, so
+    healthCheck.maxFailed applies to consecutive failures.
+  * Fixed control connections getting stuck after message write failures, which
+    could block reconnection.
+  * Fixed incorrect daily traffic statistics around daylight-saving transitions
+    and skipped local midnights.
+  * Fixed early-data loss in HTTP virtual-host CONNECT tunnels. Requests with a
+    positive content length or transfer encoding now return HTTP 400.
+  * Fixed work connections remaining open when server-side bandwidth limiting is
+    enabled for TCP, HTTP, and UDP proxies.
+
+ -- donmor <donmor3000@hotmail.com>  Mon, 23 Nov 2026 00:00:00 +0000
+
 frp (0.71.0-1) unstable; urgency=medium
 
   * UDP packet payloads for ordinary UDP proxies and SUDP now use a dedicated
